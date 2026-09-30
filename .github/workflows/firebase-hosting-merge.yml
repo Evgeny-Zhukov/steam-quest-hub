@@ -9,19 +9,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # 1. Устанавливаем Node.js
       - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: 'npm'
 
-      # 2. Устанавливаем зависимости
       - run: npm ci
-
-      # 3. Собираем TypeScript + Vite в папку public
       - run: npm run build
 
-      # 4. Деплоим собранную папку public в Firebase Hosting
       - uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}

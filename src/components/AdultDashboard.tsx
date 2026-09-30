@@ -32,17 +32,14 @@ export const AdultDashboard: React.FC<AdultDashboardProps> = ({
       newLevel += 1;
     }
 
-    // Обновляем статус запроса
     await updateDoc(doc(db, "families", familyId, "requests", req.id), { status: "approved" });
 
-    // Обновляем баланс
     await updateDoc(doc(db, "families", familyId), {
       bonusBank: newBank,
       xp: newXp,
       level: newLevel
     });
 
-    // Добавляем запись в историю
     await addDoc(collection(db, "families", familyId, "history"), {
       text: `Одобрен квест "${req.questTitle}". Начислено +${req.bonus}ч и +${addedXp} XP!`,
       date: new Date().toLocaleDateString('ru-RU')
@@ -82,7 +79,9 @@ export const AdultDashboard: React.FC<AdultDashboardProps> = ({
           <h3 className="text-sm font-bold text-amber-400 uppercase tracking-wider flex items-center gap-2">
             <i className="fa-solid fa-sliders"></i> Панель Управления Родителя
           </h3>
-          <span className="text-xs bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded border border-amber-500/30">Панель управления</span>
+          <span className="text-xs bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded border border-amber-500/30">
+            Квестов: {quests.length} | В магазине: {shopItems.length}
+          </span>
         </div>
 
         {/* Запросы от ребенка */}
@@ -122,6 +121,29 @@ export const AdultDashboard: React.FC<AdultDashboardProps> = ({
           </button>
         </div>
       </div>
+
+      {/* УПРАВЛЕНИЕ МАГАЗИНОМ ДЛЯ РОДИТЕЛЯ */}
+      {shopItems.length > 0 && (
+        <div className="bg-[#1a2232] p-5 rounded-xl hud-border space-y-3">
+          <h4 className="text-xs font-bold text-gray-300 uppercase flex items-center gap-2">
+            <i className="fa-solid fa-store text-amber-400"></i> Редактирование товаров магазина
+          </h4>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {shopItems.map(item => (
+              <div key={item.id} className="bg-slate-900 p-2.5 rounded border border-slate-800 flex items-center justify-between text-xs">
+                <span className="text-white font-semibold">{item.title} ({item.cost}ч)</span>
+                <button 
+                  onClick={() => onOpenShopModal(item)}
+                  className="text-amber-400 hover:text-amber-300 p-1 transition"
+                  title="Редактировать"
+                >
+                  <i className="fa-solid fa-pen"></i>
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ШТРАФЫ */}
       <div className="bg-[#1a2232] p-5 rounded-xl hud-border border-red-500/30">
