@@ -64,22 +64,33 @@ const App: React.FC = () => {
           setUserProfile(profile);
           subscribeToFamily(profile.familyId);
         } else {
-          // Инициализация профиля
-          const role = window.localStorage.getItem('pendingRole') as any || 'adult';
-          const code = window.localStorage.getItem('pendingFamilyCode') || '';
-          const familyId = code ? code.toUpperCase() : "HUB-" + Math.floor(100000 + Math.random() * 900000);
+          // Считываем сохраненную роль (по умолчанию 'child', а не 'adult')
+          const savedRole = window.localStorage.getItem('pendingRole') as 'adult' | 'child' | null;
+          const role = savedRole || 'child'; 
+          const savedCode = window.localStorage.getItem('pendingFamilyCode') || '';
 
+          const familyId = savedCode 
+            ? savedCode.toUpperCase() 
+            : "HUB-" + Math.floor(100000 + Math.random() * 900000);
+        
           const newProfile: UserProfile = {
             email: currentUser.email!,
             role,
             familyId,
             createdAt: new Date().toISOString()
           };
-
+        
           await setDoc(doc(db, "users", currentUser.uid), newProfile);
+
+          // Создаем документ семьи только если это Родитель
           if (role === 'adult') {
             await setDoc(doc(db, "families", familyId), DEFAULT_FAMILY_DATA);
           }
+        
+          // Очищаем временные ключи
+          window.localStorage.removeItem('pendingRole');
+          window.localStorage.removeItem('pendingFamilyCode');
+        
           setUserProfile(newProfile);
           subscribeToFamily(familyId);
         }
