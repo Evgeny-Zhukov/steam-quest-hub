@@ -5,6 +5,56 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Steam Quest HUB | Игровой баланс и Своевременные Квесты</title>
     <!-- Tailwind CSS CDN -->
+     <!-- Подключаем Firebase SDK (v10+ / Modular) -->
+    <script type="module">
+      import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+      import { 
+        getFirestore, collection, addDoc, updateDoc, doc, onSnapshot, query, orderBy 
+      } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+      // For Firebase JS SDK v7.20.0 and later, measurementId is optional
+        const firebaseConfig = {
+          apiKey: "AIzaSyDFA2PLwpHqgX9GwHCbK8c-7tymJGygf_c",
+          authDomain: "steam-quest-hub.firebaseapp.com",
+          projectId: "steam-quest-hub",
+          storageBucket: "steam-quest-hub.firebasestorage.app",
+          messagingSenderId: "357931401290",
+          appId: "1:357931401290:web:d2647c315ef4d5c0c4e6b3",
+          measurementId: "G-VYREXGW863"
+        };
+
+      // Инициализация
+      const app = initializeApp(firebaseConfig);
+      const db = getFirestore(app);
+
+      // 1. Слушаем изменения базы данных в РЕАЛЬНОМ ВРЕМЕНИ
+      onSnapshot(collection(db, "quests"), (snapshot) => {
+        const quests = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        console.log("Актуальные квесты:", quests);
+        // Функция обновления UI вашего приложения
+        renderUI(quests);
+      });
+
+      // 2. Функция отправки запроса на квест (Детский режим)
+      window.requestQuest = async function(questTitle, bonusHours) {
+        await addDoc(collection(db, "pending_approvals"), {
+          title: questTitle,
+          hours: bonusHours,
+          status: "pending",
+          createdAt: new Date().toISOString()
+        });
+      };
+
+      // 3. Функция подтверждения (Взрослый режим)
+      window.approveQuest = async function(requestId, hours) {
+        // Обновляем статус запроса
+        await updateDoc(doc(db, "pending_approvals", requestId), {
+          status: "approved"
+        });
+        // Начисляем бонус в общую систему
+        // ...
+      };
+    </script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
