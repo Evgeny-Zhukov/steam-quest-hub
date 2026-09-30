@@ -87,22 +87,23 @@
         // Initial default state
         const DEFAULT_DATA = {
             baseHours: 2,
-            bonusBank: 1,
+            bonusBank: 0,
             usedToday: 0,
-            xp: 350,
-            level: 3,
+            xp: 0,
+            level: 1,
             pin: "1234",
             quests: [
                 { id: 1, title: "Уроки сданы до 18:00", bonus: 1, type: "daily", category: "school", desc: "Все сделано, портфель собран", status: "available" },
                 { id: 2, title: "Исправить тройку/двойку", bonus: 1, type: "quest", category: "school", desc: "Получить 4 или 5 по предмету, где завал", status: "available" },
                 { id: 3, title: "Идеальная неделя", bonus: 2, type: "weekly", category: "discipline", desc: "Неделя без двоек и заметок", status: "available" },
-                { id: 4, title: "Технический осмотр скутера", bonus: 1, type: "quest", category: "scooter", desc: "Помощь по дому / гаражу или чистка экипа", status: "available" }
+                { id: 4, title: "Технический осмотр скутера", bonus: 1, type: "quest", category: "scooter", desc: "Помощь по дому / гаражу или чистка экипа", status: "available" },
+                { id: 5, title: "Технический осмотр скутера", bonus: 1, type: "quest", category: "scooter", desc: "Помощь по дому / гаражу или чистка экипа", status: "available" }
             ],
             requests: [],
             shopItems: [
                 { id: 101, title: "+1 час в Steam", cost: 1, icon: "fa-gamepad", type: "time" },
                 { id: 102, title: "Сдвиг комендантского часа на 1ч", cost: 2, icon: "fa-motorcycle", type: "scooter" },
-                { id: 103, title: "Бюджет на бензин/расходник", cost: 3, icon: "fa-gas-pump", type: "real" },
+                { id: 103, title: "Бюджет на вкусняшку/расходник", cost: 3, icon: "fa-gas-pump", type: "real" },
                 { id: 104, title: "Защитный 'Щит' (списать 1 плохую оценку)", cost: 4, icon: "fa-shield-halved", type: "perk" }
             ],
             history: [
@@ -654,7 +655,7 @@
                                         <i className="fa-solid fa-xmark"></i>
                                     </button>
                                 </div>
-                                <p className="text-xs text-gray-300">Введи PIN-код родителя для управления и одобрения квестов (По умолчанию: <code className="text-amber-400">1234</code>)</p>
+                                <p className="text-xs text-gray-300">Введи PIN-код родителя для управления и одобрения квестов)</p>
                                 <form onSubmit={verifyPin} className="space-y-3">
                                     <input 
                                         type="password" 
