@@ -4,57 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Steam Quest HUB | Игровой баланс и Своевременные Квесты</title>
+    
     <!-- Tailwind CSS CDN -->
-     <!-- Подключаем Firebase SDK (v10+ / Modular) -->
-    <script type="module">
-      import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-      import { 
-        getFirestore, collection, addDoc, updateDoc, doc, onSnapshot, query, orderBy 
-      } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
-
-      // For Firebase JS SDK v7.20.0 and later, measurementId is optional
-        const firebaseConfig = {
-          apiKey: "AIzaSyDFA2PLwpHqgX9GwHCbK8c-7tymJGygf_c",
-          authDomain: "steam-quest-hub.firebaseapp.com",
-          projectId: "steam-quest-hub",
-          storageBucket: "steam-quest-hub.firebasestorage.app",
-          messagingSenderId: "357931401290",
-          appId: "1:357931401290:web:d2647c315ef4d5c0c4e6b3",
-          measurementId: "G-VYREXGW863"
-        };
-
-      // Инициализация
-      const app = initializeApp(firebaseConfig);
-      const db = getFirestore(app);
-
-      // 1. Слушаем изменения базы данных в РЕАЛЬНОМ ВРЕМЕНИ
-      onSnapshot(collection(db, "quests"), (snapshot) => {
-        const quests = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        console.log("Актуальные квесты:", quests);
-        // Функция обновления UI вашего приложения
-        renderUI(quests);
-      });
-
-      // 2. Функция отправки запроса на квест (Детский режим)
-      window.requestQuest = async function(questTitle, bonusHours) {
-        await addDoc(collection(db, "pending_approvals"), {
-          title: questTitle,
-          hours: bonusHours,
-          status: "pending",
-          createdAt: new Date().toISOString()
-        });
-      };
-
-      // 3. Функция подтверждения (Взрослый режим)
-      window.approveQuest = async function(requestId, hours) {
-        // Обновляем статус запроса
-        await updateDoc(doc(db, "pending_approvals", requestId), {
-          status: "approved"
-        });
-        // Начисляем бонус в общую систему
-        // ...
-      };
-    </script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
@@ -80,14 +31,18 @@
             }
         }
     </script>
+    
     <!-- Font Awesome Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
     <!-- React & Babel CDNs -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
     <!-- Canvas Confetti -->
     <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    
     <style>
         body {
             background-color: #0d121a;
@@ -112,7 +67,6 @@
         .glow-gold {
             box-shadow: 0 0 12px rgba(243, 156, 18, 0.4);
         }
-        /* Custom scrollbar */
         ::-webkit-scrollbar {
             width: 8px;
         }
@@ -131,10 +85,34 @@
 <body class="selection:bg-steam-accent selection:text-black antialiased">
     <div id="root"></div>
 
+    <!-- Firebase SDK (v10 Modular) & React App -->
+    <script type="module">
+      import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+      import { 
+        getFirestore, collection, addDoc, updateDoc, doc, setDoc, onSnapshot 
+      } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+      const firebaseConfig = {
+        apiKey: "AIzaSyDFA2PLwpHqgX9GwHCbK8c-7tymJGygf_c",
+        authDomain: "steam-quest-hub.firebaseapp.com",
+        projectId: "steam-quest-hub",
+        storageBucket: "steam-quest-hub.firebasestorage.app",
+        messagingSenderId: "357931401290",
+        appId: "1:357931401290:web:d2647c315ef4d5c0c4e6b3",
+        measurementId: "G-VYREXGW863"
+      };
+
+      const app = initializeApp(firebaseConfig);
+      const db = getFirestore(app);
+
+      // Экспортируем методы Firebase в глобальную область для использования в React компоненте
+      window.db = db;
+      window.fs = { collection, addDoc, updateDoc, doc, setDoc, onSnapshot };
+    </script>
+
     <script type="text/babel">
         const { useState, useEffect } = React;
 
-        // Initial default state
         const DEFAULT_DATA = {
             baseHours: 2,
             bonusBank: 0,
@@ -144,11 +122,10 @@
             pin: "1234",
             version: "v1.0",
             quests: [
-                { id: 1, title: "Уроки сданы до 18:00", bonus: 1, type: "daily", category: "school", desc: "Все сделано, портфель собран", status: "available" },
-                { id: 2, title: "Исправить тройку/двойку", bonus: 1, type: "quest", category: "school", desc: "Получить 4 или 5 по предмету, где завал", status: "available" },
-                { id: 3, title: "Идеальная неделя", bonus: 2, type: "weekly", category: "discipline", desc: "Неделя без двоек и заметок", status: "available" },
-                { id: 4, title: "Технический осмотр скутера", bonus: 1, type: "quest", category: "scooter", desc: "Помощь по дому / гаражу или чистка экипа", status: "available" },
-                { id: 5, title: "Технический осмотр скутера", bonus: 1, type: "quest", category: "scooter", desc: "Помощь по дому / гаражу или чистка экипа", status: "available" }
+                { id: "1", title: "Уроки сданы до 18:00", bonus: 1, type: "daily", category: "school", desc: "Все сделано, портфель собран" },
+                { id: "2", title: "Исправить тройку/двойку", bonus: 1, type: "quest", category: "school", desc: "Получить 4 или 5 по предмету, где завал" },
+                { id: "3", title: "Идеальная неделя", bonus: 2, type: "weekly", category: "discipline", desc: "Неделя без двоек и заметок" },
+                { id: "4", title: "Технический осмотр скутера", bonus: 1, type: "quest", category: "scooter", desc: "Помощь по дому / гаражу или чистка экипа" }
             ],
             requests: [],
             shopItems: [
@@ -158,25 +135,14 @@
                 { id: 104, title: "Защитный 'Щит' (списать 1 плохую оценку)", cost: 4, icon: "fa-shield-halved", type: "perk" }
             ],
             history: [
-                { id: 1001, text: "Система активирована. Старт сезона!", date: new Date().toLocaleDateString('ru-RU') }
-            ],
-            firebaseConfig: {
-                apiKey: "",
-                authDomain: "",
-                databaseURL: "",
-                projectId: "",
-                storageBucket: "",
-                messagingSenderId: "",
-                appId: ""
-            }
+                { id: 1001, text: "Система активирована. Подключено к Firebase Firestore!", date: new Date().toLocaleDateString('ru-RU') }
+            ]
         };
 
         function App() {
-            const [mode, setMode] = useState("child"); // "child" | "adult"
-            const [data, setData] = useState(() => {
-                const saved = localStorage.getItem("steam_quest_hub_data");
-                return saved ? JSON.parse(saved) : DEFAULT_DATA;
-            });
+            const [mode, setMode] = useState("child");
+            const [data, setData] = useState(DEFAULT_DATA);
+            const [isLoaded, setIsLoaded] = useState(false);
 
             const [pinInput, setPinInput] = useState("");
             const [showPinModal, setShowPinModal] = useState(false);
@@ -185,24 +151,67 @@
             const [showPenalizeModal, setShowPenalizeModal] = useState(false);
             const [notification, setNotification] = useState(null);
 
-            // Form states
             const [newQuestTitle, setNewQuestTitle] = useState("");
             const [newQuestBonus, setNewQuestBonus] = useState(1);
             const [newQuestCategory, setNewQuestCategory] = useState("school");
             const [penalizeReason, setPenalizeReason] = useState("");
             const [penalizeHours, setPenalizeHours] = useState(1);
 
-            // Save locally on change
+            // Инициализация подписки на Firebase Firestore Realtime updates
             useEffect(() => {
-                localStorage.setItem("steam_quest_hub_data", JSON.stringify(data));
-            }, [data]);
+                const checkFirebase = setInterval(() => {
+                    if (window.db && window.fs) {
+                        clearInterval(checkFirebase);
+                        const { doc, onSnapshot, setDoc } = window.fs;
+                        const db = window.db;
+
+                        // Слушаем системное состояние (баланс, исторические данные)
+                        const unsubState = onSnapshot(doc(db, "system_state", "main"), (docSnap) => {
+                            if (docSnap.exists()) {
+                                const cloudData = docSnap.data();
+                                setData(prev => ({ ...prev, ...cloudData }));
+                            } else {
+                                // Если базы нет — инициализируем ее
+                                setDoc(doc(db, "system_state", "main"), DEFAULT_DATA);
+                            }
+                            setIsLoaded(true);
+                        });
+
+                        // Слушаем список квестов
+                        const unsubQuests = onSnapshot(window.fs.collection(db, "quests"), (snapshot) => {
+                            if (!snapshot.empty) {
+                                const cloudQuests = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+                                setData(prev => ({ ...prev, quests: cloudQuests }));
+                            }
+                        });
+
+                        // Слушаем запросы на подтверждение
+                        const unsubRequests = onSnapshot(window.fs.collection(db, "requests"), (snapshot) => {
+                            const cloudRequests = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+                            setData(prev => ({ ...prev, requests: cloudRequests }));
+                        });
+                    }
+                }, 200);
+
+                return () => clearInterval(checkFirebase);
+            }, []);
+
+            // Синхронизация системных изменений в Firestore
+            const saveSystemStateToCloud = async (updatedFields) => {
+                if (window.db && window.fs) {
+                    const { doc, updateDoc } = window.fs;
+                    try {
+                        await updateDoc(doc(window.db, "system_state", "main"), updatedFields);
+                    } catch (e) {
+                        console.error("Ошибка сохранения в Cloud:", e);
+                    }
+                }
+            };
 
             const triggerConfetti = () => {
                 try {
                     confetti({ particleCount: 70, spread: 60, origin: { y: 0.7 } });
-                } catch (e) {
-                    // fallback
-                }
+                } catch (e) {}
             };
 
             const showToast = (msg, type = "info") => {
@@ -210,7 +219,6 @@
                 setTimeout(() => setNotification(null), 3500);
             };
 
-            // Switch Mode handler
             const handleSwitchMode = (targetMode) => {
                 if (targetMode === "adult" && mode !== "adult") {
                     setShowPinModal(true);
@@ -233,15 +241,13 @@
                 }
             };
 
-            const requestQuestCompletion = (quest) => {
-                // Check if already requested
+            const requestQuestCompletion = async (quest) => {
                 if (data.requests.some(r => r.questId === quest.id && r.status === "pending")) {
                     showToast("Запрос по этому квесту уже отправлен и ждет подтверждения!", "warning");
                     return;
                 }
 
                 const newRequest = {
-                    id: Date.now(),
                     questId: quest.id,
                     questTitle: quest.title,
                     bonus: quest.bonus,
@@ -249,10 +255,9 @@
                     status: "pending"
                 };
 
-                setData(prev => ({
-                    ...prev,
-                    requests: [newRequest, ...prev.requests]
-                }));
+                if (window.db && window.fs) {
+                    await window.fs.addDoc(window.fs.collection(window.db, "requests"), newRequest);
+                }
 
                 showToast(`Запрос на "${quest.title}" (+${quest.bonus}ч) отправлен старшему!`, "success");
             };
@@ -264,7 +269,6 @@
                     return;
                 }
 
-                // Deduct from bonus bank first if base hours exceeded
                 let newBonusBank = data.bonusBank;
                 const remainingBase = Math.max(0, data.baseHours - data.usedToday);
                 if (hours > remainingBase) {
@@ -275,22 +279,20 @@
                 const newUsed = data.usedToday + hours;
                 const newHistory = [{
                     id: Date.now(),
-                    text: `Списано ${hours}ч. Сыграно/потрачено сегодня: ${newUsed}ч`,
+                    text: `Списано ${hours}ч. Сыграно сегодня: ${newUsed}ч`,
                     date: new Date().toLocaleDateString('ru-RU')
                 }, ...data.history];
 
-                setData(prev => ({
-                    ...prev,
+                saveSystemStateToCloud({
                     usedToday: newUsed,
                     bonusBank: newBonusBank,
                     history: newHistory
-                }));
+                });
 
                 showToast(`Зафиксировано ${hours}ч. Приятного отдыха!`, "info");
             };
 
-            const handleApproveRequest = (req) => {
-                // Add bonus to bank & gain XP
+            const handleApproveRequest = async (req) => {
                 const newBank = data.bonusBank + req.bonus;
                 const addedXp = req.bonus * 100;
                 let newXp = data.xp + addedXp;
@@ -299,65 +301,62 @@
                     newLevel += 1;
                 }
 
-                const updatedRequests = data.requests.map(r => r.id === req.id ? { ...r, status: "approved" } : r);
                 const newHistory = [{
                     id: Date.now(),
                     text: `Подтвержден квест "${req.questTitle}". Начислено +${req.bonus}ч в Банк!`,
                     date: new Date().toLocaleDateString('ru-RU')
                 }, ...data.history];
 
-                setData(prev => ({
-                    ...prev,
+                // Обновляем запрос в Firestore
+                if (window.db && window.fs) {
+                    await window.fs.updateDoc(window.fs.doc(window.db, "requests", req.id), { status: "approved" });
+                }
+
+                saveSystemStateToCloud({
                     bonusBank: newBank,
                     xp: newXp,
                     level: newLevel,
-                    requests: updatedRequests,
                     history: newHistory
-                }));
+                });
 
                 triggerConfetti();
                 showToast(`Запрос подтвержден! +${req.bonus}ч отправлено в банк.`, "success");
             };
 
-            const handleRejectRequest = (req) => {
-                const updatedRequests = data.requests.map(r => r.id === req.id ? { ...r, status: "rejected" } : r);
+            const handleRejectRequest = async (req) => {
+                if (window.db && window.fs) {
+                    await window.fs.updateDoc(window.fs.doc(window.db, "requests", req.id), { status: "rejected" });
+                }
+
                 const newHistory = [{
                     id: Date.now(),
                     text: `Отклонен запрос на квест "${req.questTitle}".`,
                     date: new Date().toLocaleDateString('ru-RU')
                 }, ...data.history];
 
-                setData(prev => ({
-                    ...prev,
-                    requests: updatedRequests,
-                    history: newHistory
-                }));
-
+                saveSystemStateToCloud({ history: newHistory });
                 showToast(`Запрос отклонен`, "info");
             };
 
-            const handleAddQuest = (e) => {
+            const handleAddQuest = async (e) => {
                 e.preventDefault();
                 if (!newQuestTitle) return;
 
                 const newQuest = {
-                    id: Date.now(),
                     title: newQuestTitle,
                     bonus: parseInt(newQuestBonus),
                     type: "quest",
                     category: newQuestCategory,
-                    desc: "Пользовательский квест от старшего",
-                    status: "available"
+                    desc: "Пользовательский квест от старшего"
                 };
 
-                setData(prev => ({
-                    ...prev,
-                    quests: [newQuest, ...prev.quests]
-                }));
+                if (window.db && window.fs) {
+                    await window.fs.addDoc(window.fs.collection(window.db, "quests"), newQuest);
+                }
 
                 setNewQuestTitle("");
                 setShowNewQuestModal(false);
-                showToast("Новый квест успешно добавлен!", "success");
+                showToast("Новый квест успешно добавлен в облако!", "success");
             };
 
             const handlePenalize = (e) => {
@@ -371,11 +370,10 @@
                     date: new Date().toLocaleDateString('ru-RU')
                 }, ...data.history];
 
-                setData(prev => ({
-                    ...prev,
+                saveSystemStateToCloud({
                     bonusBank: newBank,
                     history: newHistory
-                }));
+                });
 
                 setPenalizeReason("");
                 setShowPenalizeModal(false);
@@ -383,11 +381,11 @@
             };
 
             const handleResetDay = () => {
-                setData(prev => ({
-                    ...prev,
+                const newHistory = [{ id: Date.now(), text: "Сброшен таймер дня (новый день)", date: new Date().toLocaleDateString('ru-RU') }, ...data.history];
+                saveSystemStateToCloud({
                     usedToday: 0,
-                    history: [{ id: Date.now(), text: "Сброшен таймер дня (новый день)", date: new Date().toLocaleDateString('ru-RU') }, ...prev.history]
-                }));
+                    history: newHistory
+                });
                 showToast("Дневной таймер сброшен!", "info");
             };
 
@@ -404,9 +402,9 @@
                             </div>
                             <div>
                                 <h1 className="text-xl font-black text-white tracking-wider uppercase flex items-center gap-2">
-                                    HUB БРАТА <span className="text-xs px-2 py-0.5 rounded bg-steam-btn text-steam-accent border border-steam-accent/30">{DEFAULT_DATA.version}</span>
+                                    HUB БРАТА <span className="text-xs px-2 py-0.5 rounded bg-steam-btn text-steam-accent border border-steam-accent/30">{data.version}</span>
                                 </h1>
-                                <p className="text-xs text-gray-400">Система контроля времени & Квесты будущего</p>
+                                <p className="text-xs text-gray-400">Система контроля времени & Cloud Firestore</p>
                             </div>
                         </div>
 
@@ -473,7 +471,7 @@
                                 </div>
                             </div>
 
-                            {/* Resource Gauges (Base vs Bonus vs Available) */}
+                            {/* Resource Gauges */}
                             <div className="bg-steam-card p-5 rounded-xl hud-border">
                                 <h3 className="text-sm font-bold text-white uppercase mb-4 flex items-center justify-between">
                                     <span><i className="fa-solid fa-clock text-steam-accent mr-2"></i>Баланс Времени</span>
@@ -505,7 +503,7 @@
                                     </div>
                                 </div>
 
-                                {/* Quick Log Time (Child Quick Action) */}
+                                {/* Quick Log Time */}
                                 {mode === "child" && (
                                     <div className="space-y-2">
                                         <span className="text-xs text-gray-400 block">Зафиксировать сыгранное время:</span>
@@ -523,7 +521,7 @@
                                 onClick={() => setShowHostingGuide(true)}
                                 className="w-full bg-slate-900 hover:bg-slate-800 text-xs text-steam-accent p-3 rounded-xl border border-steam-accent/30 flex items-center justify-between transition"
                             >
-                                <span className="flex items-center gap-2"><i className="fa-solid fa-cloud-arrow-up"></i> Как синхронизировать на 2 телефона?</span>
+                                <span className="flex items-center gap-2"><i className="fa-solid fa-cloud-arrow-up"></i> Синхронизация Firebase</span>
                                 <i className="fa-solid fa-chevron-right"></i>
                             </button>
                         </div>
@@ -531,7 +529,7 @@
                         {/* CENTER COLUMN: Quests & Tasks */}
                         <div className="lg:col-span-2 space-y-6">
                             
-                            {/* Adult Controls Section (Visible only in Adult Mode) */}
+                            {/* Adult Controls Section */}
                             {mode === "adult" && (
                                 <div className="bg-amber-950/30 p-5 rounded-xl border border-amber-500/40 space-y-4">
                                     <div className="flex items-center justify-between">
@@ -676,7 +674,7 @@
                                 </div>
                             </div>
 
-                            {/* Activity & Audit Log */}
+                            {/* Activity Log */}
                             <div className="bg-steam-card p-5 rounded-xl hud-border">
                                 <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3 flex items-center gap-2">
                                     <i className="fa-solid fa-list-check"></i> История событий и активности
@@ -694,7 +692,7 @@
                         </div>
                     </main>
 
-                    {/* MODAL: Adult PIN Verification */}
+                    {/* MODALS */}
                     {showPinModal && (
                         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
                             <div className="bg-steam-card p-6 rounded-xl hud-border max-w-sm w-full space-y-4 border border-amber-500/40">
@@ -706,7 +704,7 @@
                                         <i className="fa-solid fa-xmark"></i>
                                     </button>
                                 </div>
-                                <p className="text-xs text-gray-300">Введи PIN-код родителя для управления и одобрения квестов)</p>
+                                <p className="text-xs text-gray-300">Введи PIN-код родителя для управления и одобрения квестов</p>
                                 <form onSubmit={verifyPin} className="space-y-3">
                                     <input 
                                         type="password" 
@@ -724,7 +722,6 @@
                         </div>
                     )}
 
-                    {/* MODAL: Create New Quest */}
                     {showNewQuestModal && (
                         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
                             <div className="bg-steam-card p-6 rounded-xl hud-border max-w-md w-full space-y-4">
@@ -782,7 +779,6 @@
                         </div>
                     )}
 
-                    {/* MODAL: Penalize */}
                     {showPenalizeModal && (
                         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
                             <div className="bg-steam-card p-6 rounded-xl hud-border max-w-md w-full space-y-4 border border-red-500/40">
@@ -824,13 +820,12 @@
                         </div>
                     )}
 
-                    {/* MODAL: Free Hosting & Sync Instructions */}
                     {showHostingGuide && (
                         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
                             <div className="bg-steam-card p-6 rounded-xl hud-border max-w-2xl w-full space-y-4 max-h-[85vh] overflow-y-auto">
                                 <div className="flex items-center justify-between border-b border-slate-800 pb-3">
                                     <h3 className="text-sm font-bold text-steam-accent uppercase flex items-center gap-2">
-                                        <i className="fa-solid fa-server"></i> Инструкция: Бесплатный деплой и Синхронизация на 2 устройства
+                                        <i className="fa-solid fa-server"></i> Инструкция по синхронизации Firebase
                                     </h3>
                                     <button onClick={() => setShowHostingGuide(false)} className="text-gray-400 hover:text-white">
                                         <i className="fa-solid fa-xmark"></i>
@@ -839,40 +834,18 @@
                                 
                                 <div className="space-y-4 text-xs text-gray-300 leading-relaxed">
                                     <div className="bg-slate-900 p-3 rounded border border-slate-800 space-y-1">
-                                        <h4 className="font-bold text-white text-xs">🚀 Вариант 1: Запуск прямо сейчас (Без серверов)</h4>
-                                        <p>Приложение сохраняет все данные в <code className="text-steam-accent">LocalStorage</code> браузера. Вы можете просто скопировать этот один HTML-файл и открыть его на телефоне или ПК через обычный браузер.</p>
-                                    </div>
-
-                                    <div className="bg-slate-900 p-3 rounded border border-slate-800 space-y-2">
-                                        <h4 className="font-bold text-white text-xs">🌐 Вариант 2: Загрузка на бесплатный хостинг (GitHub Pages / Vercel / Netlify)</h4>
-                                        <ol className="list-decimal list-inside space-y-1 text-gray-400">
-                                            <li>Сохраните код в файл <code className="text-white">index.html</code>.</li>
-                                            <li>Зарегистрируйтесь на <strong className="text-white">GitHub.com</strong> и создайте репозиторий <code className="text-white">steam-quest-hub</code>.</li>
-                                            <li>Загрузите туда файл <code className="text-white">index.html</code>.</li>
-                                            <li>В настройках репозитория (Settings → Pages) включите <strong className="text-white">GitHub Pages</strong>.</li>
-                                            <li>Получите бесплатную ссылку (например, <code className="text-steam-accent">https://username.github.io/steam-quest-hub</code>) и отправьте ее брату!</li>
-                                        </ol>
-                                    </div>
-
-                                    <div className="bg-slate-900 p-3 rounded border border-slate-800 space-y-2">
-                                        <h4 className="font-bold text-amber-400 text-xs">🔥 Вариант 3: Синхронизация через Firebase Realtime Database</h4>
-                                        <p>Чтобы изменения мгновенно отображались на телефоне брата и у вас в реальном времени:</p>
-                                        <ol className="list-decimal list-inside space-y-1 text-gray-400">
-                                            <li>Перейдите на <strong className="text-white">console.firebase.google.com</strong> (бесплатный тариф Spark).</li>
-                                            <li>Создайте проект и включите <strong className="text-white">Realtime Database</strong>.</li>
-                                            <li>Скопируйте конфиг и подставьте в настройки данного приложения.</li>
-                                        </ol>
+                                        <h4 className="font-bold text-white text-xs">🔥 Статус подключения</h4>
+                                        <p>Приложение автоматически подключается к проекту <code className="text-steam-accent">steam-quest-hub</code> в Firebase Cloud Firestore. Данные синхронизируются в реальном времени между всеми смартфонами и ПК.</p>
                                     </div>
                                 </div>
 
                                 <button onClick={() => setShowHostingGuide(false)} className="w-full bg-slate-800 hover:bg-slate-700 text-white font-bold py-2 rounded text-xs transition">
-                                    Понятно, закрыть
+                                    Закрыть
                                 </button>
                             </div>
                         </div>
                     )}
 
-                    {/* Footer */}
                     <footer className="mt-8 text-center text-xs text-gray-600 border-t border-slate-900 pt-4">
                         Steam Quest HUB • Система баланса времени, учебы и скутера • Разработано для брата
                     </footer>
