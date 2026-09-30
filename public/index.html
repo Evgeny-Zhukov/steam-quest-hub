@@ -105,7 +105,6 @@
       const app = initializeApp(firebaseConfig);
       const db = getFirestore(app);
 
-      // Экспортируем методы Firebase в глобальную область для использования в React компоненте
       window.db = db;
       window.fs = { collection, addDoc, updateDoc, doc, setDoc, onSnapshot };
     </script>
@@ -120,7 +119,11 @@
             xp: 0,
             level: 1,
             pin: "1234",
-            version: "v1.0",
+            version: "v2.0",
+            streak: 0,
+            lastResetDate: new Date().toISOString().split('T')[0],
+            lastWeeklyResetWeek: getWeekNumber(new Date()),
+            unlockedAchievements: [],
             quests: [
                 { id: "1", title: "Уроки сданы до 18:00", bonus: 1, type: "daily", category: "school", desc: "Все сделано, портфель собран" },
                 { id: "2", title: "Исправить тройку/двойку", bonus: 1, type: "quest", category: "school", desc: "Получить 4 или 5 по предмету, где завал" },
@@ -129,15 +132,37 @@
             ],
             requests: [],
             shopItems: [
-                { id: 101, title: "+1 час в Steam", cost: 1, icon: "fa-gamepad", type: "time" },
-                { id: 102, title: "Сдвиг комендантского часа на 1ч", cost: 2, icon: "fa-motorcycle", type: "scooter" },
-                { id: 103, title: "Бюджет на вкусняшку/расходник", cost: 3, icon: "fa-gas-pump", type: "real" },
-                { id: 104, title: "Защитный 'Щит' (списать 1 плохую оценку)", cost: 4, icon: "fa-shield-halved", type: "perk" }
+                { id: "101", title: "+1 час в Steam", cost: 1, icon: "fa-gamepad" },
+                { id: "102", title: "Сдвиг комендантского часа на 1ч", cost: 2, icon: "fa-motorcycle" },
+                { id: "103", title: "Бюджет на вкусняшку/расходник", cost: 3, icon: "fa-gas-pump" },
+                { id: "104", title: "Защитный 'Щит' (списать 1 плохую оценку)", cost: 4, icon: "fa-shield-halved" }
             ],
             history: [
-                { id: 1001, text: "Система активирована. Подключено к Firebase Firestore!", date: new Date().toLocaleDateString('ru-RU') }
+                { id: 1001, text: "Система активирована v2.0 (Автосброс, Ачивки, Серии!)", date: new Date().toLocaleDateString('ru-RU') }
             ]
         };
+
+        const ACHIEVEMENTS_LIST = [
+            { id: "first_quest", title: "Первая кровь", desc: "Выполнить и подтвердить 1-й квест", icon: "fa-bolt", color: "text-amber-400" },
+            { id: "streak_3", title: "Ударный ритм", desc: "Удерживать серию в 3 дня подряд", icon: "fa-fire", color: "text-red-500" },
+            { id: "xp_500", title: "Опытный Геймер", desc: "Набрать 500 XP за квесты", icon: "fa-star", color: "text-steam-accent" },
+            { id: "lvl_3", title: "Взрослый Лрафт", desc: "Достигнуть 3-го уровня профиля", icon: "fa-trophy", color: "text-yellow-400" },
+            { id: "first_buy", title: "Транзакция", desc: "Купить первую привилегию в Магазине", icon: "fa-cart-shopping", color: "text-emerald-400" }
+        ];
+
+        const LEVEL_REWARDS = {
+            1: "Стандартный доступ к Steam и скутеру",
+            2: "Бонус: +50 XP за каждый последующий квест",
+            3: "Разблокирован купон на сдвиг комендантского часа",
+            5: "Эксклюзивный девайс для ПК от старшего"
+        };
+
+        function getWeekNumber(d) {
+            d = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+            d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay()||7));
+            var yearStart = new Date(Date.UTC(d.getUTCFullYear(),0,1));
+            return Math.ceil((((d - yearStart) / 86400000) + 1)/7);
+        }
 
         function App() {
             const [mode, setMode] = useState("child");
@@ -149,6 +174,8 @@
             const [showHostingGuide, setShowHostingGuide] = useState(false);
             const [showNewQuestModal, setShowNewQuestModal] = useState(false);
             const [showPenalizeModal, setShowPenalizeModal] = useState(false);
+            const [showShopModal, setShowShopModal] = useState(false);
+            const [editingShopItem, setEditingShopItem] = useState(null);
             const [notification, setNotification] = useState(null);
 
             const [newQuestTitle, setNewQuestTitle] = useState("");
@@ -157,38 +184,46 @@
             const [penalizeReason, setPenalizeReason] = useState("");
             const [penalizeHours, setPenalizeHours] = useState(1);
 
-            // Инициализация подписки на Firebase Firestore Realtime updates
+            const [shopTitle, setShopTitle] = useState("");
+            const [shopCost, setShopCost] = useState(1);
+            const [shopIcon, setShopIcon] = useState("fa-gamepad");
+
+            // Инициализация и слушатели Cloud Firestore
             useEffect(() => {
                 const checkFirebase = setInterval(() => {
                     if (window.db && window.fs) {
                         clearInterval(checkFirebase);
-                        const { doc, onSnapshot, setDoc } = window.fs;
+                        const { doc, onSnapshot, setDoc, collection } = window.fs;
                         const db = window.db;
 
-                        // Слушаем системное состояние (баланс, исторические данные)
-                        const unsubState = onSnapshot(doc(db, "system_state", "main"), (docSnap) => {
+                        onSnapshot(doc(db, "system_state", "main"), (docSnap) => {
                             if (docSnap.exists()) {
                                 const cloudData = docSnap.data();
-                                setData(prev => ({ ...prev, ...cloudData }));
+                                // Проверка и Автоматический сброс по дате
+                                processAutoReset(cloudData);
                             } else {
-                                // Если базы нет — инициализируем ее
                                 setDoc(doc(db, "system_state", "main"), DEFAULT_DATA);
                             }
                             setIsLoaded(true);
                         });
 
-                        // Слушаем список квестов
-                        const unsubQuests = onSnapshot(window.fs.collection(db, "quests"), (snapshot) => {
+                        onSnapshot(collection(db, "quests"), (snapshot) => {
                             if (!snapshot.empty) {
                                 const cloudQuests = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
                                 setData(prev => ({ ...prev, quests: cloudQuests }));
                             }
                         });
 
-                        // Слушаем запросы на подтверждение
-                        const unsubRequests = onSnapshot(window.fs.collection(db, "requests"), (snapshot) => {
+                        onSnapshot(collection(db, "requests"), (snapshot) => {
                             const cloudRequests = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
                             setData(prev => ({ ...prev, requests: cloudRequests }));
+                        });
+
+                        onSnapshot(collection(db, "shop_items"), (snapshot) => {
+                            if (!snapshot.empty) {
+                                const cloudShop = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+                                setData(prev => ({ ...prev, shopItems: cloudShop }));
+                            }
                         });
                     }
                 }, 200);
@@ -196,15 +231,80 @@
                 return () => clearInterval(checkFirebase);
             }, []);
 
-            // Синхронизация системных изменений в Firestore
+            // Автоматический сброс Дня и Недели по дате
+            const processAutoReset = (cloudData) => {
+                const todayStr = new Date().toISOString().split('T')[0];
+                const currentWeek = getWeekNumber(new Date());
+
+                let updatedFields = { ...cloudData };
+                let needCloudSave = false;
+
+                // 1. Ежедневный сброс в полночь
+                if (cloudData.lastResetDate !== todayStr) {
+                    updatedFields.usedToday = 0;
+                    updatedFields.lastResetDate = todayStr;
+                    
+                    // Если за вчера играл нормально и закрыл день — увеличиваем Streak
+                    updatedFields.streak = (cloudData.streak || 0) + 1;
+                    updatedFields.history = [{
+                        id: Date.now(),
+                        text: `🔄 Новый день! Таймер сброшен. Серия дней: ${updatedFields.streak} 🔥`,
+                        date: new Date().toLocaleDateString('ru-RU')
+                    }, ...(cloudData.history || [])];
+                    
+                    needCloudSave = true;
+                }
+
+                // 2. Еженедельный сброс в понедельник
+                if (cloudData.lastWeeklyResetWeek !== currentWeek) {
+                    updatedFields.bonusBank = 0; // Сгорание неиспользованного бонуса
+                    updatedFields.lastWeeklyResetWeek = currentWeek;
+                    updatedFields.history = [{
+                        id: Date.now(),
+                        text: "🧹 Начало новой недели! Неиспользованный банк бонусов обнулен.",
+                        date: new Date().toLocaleDateString('ru-RU')
+                    }, ...(updatedFields.history || [])];
+
+                    needCloudSave = true;
+                }
+
+                if (needCloudSave) {
+                    saveSystemStateToCloud(updatedFields);
+                } else {
+                    setData(prev => ({ ...prev, ...cloudData }));
+                }
+            };
+
             const saveSystemStateToCloud = async (updatedFields) => {
                 if (window.db && window.fs) {
-                    const { doc, updateDoc } = window.fs;
                     try {
-                        await updateDoc(doc(window.db, "system_state", "main"), updatedFields);
+                        await window.fs.updateDoc(window.fs.doc(window.db, "system_state", "main"), updatedFields);
                     } catch (e) {
                         console.error("Ошибка сохранения в Cloud:", e);
                     }
+                }
+            };
+
+            const checkAchievements = (currentData, newXp, newLevel, newBank) => {
+                let unlocked = [...(currentData.unlockedAchievements || [])];
+                let hasNew = false;
+
+                const grant = (achId) => {
+                    if (!unlocked.includes(achId)) {
+                        unlocked.push(achId);
+                        hasNew = true;
+                        const ach = ACHIEVEMENTS_LIST.find(a => a.id === achId);
+                        showToast(`🏆 Достижение получено: ${ach.title}!`, "success");
+                    }
+                };
+
+                if (newXp > 0) grant("first_quest");
+                if (newXp >= 500) grant("xp_500");
+                if (newLevel >= 3) grant("lvl_3");
+                if (currentData.streak >= 3) grant("streak_3");
+
+                if (hasNew) {
+                    saveSystemStateToCloud({ unlockedAchievements: unlocked });
                 }
             };
 
@@ -294,20 +394,20 @@
 
             const handleApproveRequest = async (req) => {
                 const newBank = data.bonusBank + req.bonus;
-                const addedXp = req.bonus * 100;
+                const addedXp = req.bonus * 50; // 50 XP за 1 бонусный час
                 let newXp = data.xp + addedXp;
                 let newLevel = data.level;
                 if (newXp >= newLevel * 300) {
                     newLevel += 1;
+                    showToast(`🎉 УРОВЕНЬ ПОВЫШЕН! Теперь Level ${newLevel}!`, "success");
                 }
 
                 const newHistory = [{
                     id: Date.now(),
-                    text: `Подтвержден квест "${req.questTitle}". Начислено +${req.bonus}ч в Банк!`,
+                    text: `Подтвержден квест "${req.questTitle}". Начислено +${req.bonus}ч и +${addedXp} XP!`,
                     date: new Date().toLocaleDateString('ru-RU')
                 }, ...data.history];
 
-                // Обновляем запрос в Firestore
                 if (window.db && window.fs) {
                     await window.fs.updateDoc(window.fs.doc(window.db, "requests", req.id), { status: "approved" });
                 }
@@ -319,8 +419,8 @@
                     history: newHistory
                 });
 
+                checkAchievements(data, newXp, newLevel, newBank);
                 triggerConfetti();
-                showToast(`Запрос подтвержден! +${req.bonus}ч отправлено в банк.`, "success");
             };
 
             const handleRejectRequest = async (req) => {
@@ -359,6 +459,76 @@
                 showToast("Новый квест успешно добавлен в облако!", "success");
             };
 
+            const handleSaveShopItem = async (e) => {
+                e.preventDefault();
+                if (!shopTitle) return;
+
+                const itemData = {
+                    title: shopTitle,
+                    cost: parseInt(shopCost),
+                    icon: shopIcon
+                };
+
+                if (window.db && window.fs) {
+                    if (editingShopItem) {
+                        await window.fs.updateDoc(window.fs.doc(window.db, "shop_items", editingShopItem.id), itemData);
+                        showToast("Товар успешно обновлен!", "success");
+                    } else {
+                        await window.fs.addDoc(window.fs.collection(window.db, "shop_items"), itemData);
+                        showToast("Новый товар добавлен в Магазин!", "success");
+                    }
+                }
+
+                setShowShopModal(false);
+                setEditingShopItem(null);
+                setShopTitle("");
+                setShopCost(1);
+            };
+
+            const openEditShopModal = (item = null) => {
+                if (item) {
+                    setEditingShopItem(item);
+                    setShopTitle(item.title);
+                    setShopCost(item.cost);
+                    setShopIcon(item.icon || "fa-gamepad");
+                } else {
+                    setEditingShopItem(null);
+                    setShopTitle("");
+                    setShopCost(1);
+                    setShopIcon("fa-gamepad");
+                }
+                setShowShopModal(true);
+            };
+
+            const handleBuyShopItem = (item) => {
+                if (data.bonusBank < item.cost) {
+                    showToast("Недостаточно бонусных часов в Банке!", "error");
+                    return;
+                }
+
+                const newBank = data.bonusBank - item.cost;
+                const newHistory = [{
+                    id: Date.now(),
+                    text: `Приобретена привилегия: "${item.title}" за ${item.cost} бонус-часа!`,
+                    date: new Date().toLocaleDateString('ru-RU')
+                }, ...data.history];
+
+                let unlocked = [...(data.unlockedAchievements || [])];
+                if (!unlocked.includes("first_buy")) {
+                    unlocked.push("first_buy");
+                    showToast("🏆 Ачивка: Транзакция!", "success");
+                }
+
+                saveSystemStateToCloud({
+                    bonusBank: newBank,
+                    unlockedAchievements: unlocked,
+                    history: newHistory
+                });
+
+                triggerConfetti();
+                showToast(`Успешно куплено: ${item.title}!`, "success");
+            };
+
             const handlePenalize = (e) => {
                 e.preventDefault();
                 const penalty = parseInt(penalizeHours);
@@ -372,21 +542,13 @@
 
                 saveSystemStateToCloud({
                     bonusBank: newBank,
+                    streak: 0, // Сброс серии при штрафе
                     history: newHistory
                 });
 
                 setPenalizeReason("");
                 setShowPenalizeModal(false);
-                showToast(`Применен дебафф -${penalty}ч`, "warning");
-            };
-
-            const handleResetDay = () => {
-                const newHistory = [{ id: Date.now(), text: "Сброшен таймер дня (новый день)", date: new Date().toLocaleDateString('ru-RU') }, ...data.history];
-                saveSystemStateToCloud({
-                    usedToday: 0,
-                    history: newHistory
-                });
-                showToast("Дневной таймер сброшен!", "info");
+                showToast(`Применен дебафф -${penalty}ч. Серия сброшена.`, "warning");
             };
 
             const totalAvailableToday = Math.max(0, (data.baseHours + data.bonusBank) - data.usedToday);
@@ -404,7 +566,7 @@
                                 <h1 className="text-xl font-black text-white tracking-wider uppercase flex items-center gap-2">
                                     HUB БРАТА <span className="text-xs px-2 py-0.5 rounded bg-steam-btn text-steam-accent border border-steam-accent/30">{data.version}</span>
                                 </h1>
-                                <p className="text-xs text-gray-400">Система контроля времени & Cloud Firestore</p>
+                                <p className="text-xs text-gray-400">Система контроля времени & Игровые Ачивки</p>
                             </div>
                         </div>
 
@@ -441,25 +603,27 @@
                     {/* MAIN HUD CONTENT */}
                     <main className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-auto">
                         
-                        {/* LEFT COLUMN: Status & Resource Dashboard */}
+                        {/* LEFT COLUMN: Status, Level & Achievements */}
                         <div className="space-y-6">
                             
-                            {/* Profile & Level Card */}
+                            {/* Profile Card with Streak & Level */}
                             <div className="bg-steam-card p-5 rounded-xl hud-border relative overflow-hidden">
-                                <div className="absolute top-0 right-0 p-4 opacity-10 text-8xl text-steam-accent">
-                                    <i className="fa-solid fa-gamepad"></i>
-                                </div>
                                 <div className="flex items-center justify-between mb-3">
                                     <span className="text-xs uppercase font-bold tracking-widest text-steam-accent">Статус Игрока</span>
-                                    <span className="text-xs bg-steam-btn px-2 py-1 rounded text-white font-mono">Уровень {data.level}</span>
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-xs bg-red-950/80 text-red-400 border border-red-500/40 px-2 py-0.5 rounded font-bold flex items-center gap-1">
+                                            <i className="fa-solid fa-fire"></i> {data.streak || 0} дн
+                                        </span>
+                                        <span className="text-xs bg-steam-btn px-2 py-0.5 rounded text-white font-mono">Уровень {data.level}</span>
+                                    </div>
                                 </div>
                                 <h2 className="text-2xl font-black text-white mb-1">Младший Брат</h2>
                                 <p className="text-xs text-gray-400 mb-4">CS2 & Rust Строитель / Скутерист</p>
                                 
                                 {/* XP Bar */}
-                                <div className="space-y-1">
+                                <div className="space-y-1 mb-3">
                                     <div className="flex justify-between text-xs text-gray-400">
-                                        <span>Опыт (XP)</span>
+                                        <span>Опыт (XP) [50 XP / 1 ч]</span>
                                         <span>{data.xp} / {data.level * 300} XP</span>
                                     </div>
                                     <div className="w-full bg-slate-800 h-2.5 rounded-full overflow-hidden border border-slate-700">
@@ -469,13 +633,49 @@
                                         ></div>
                                     </div>
                                 </div>
+
+                                {/* Current Level Perks */}
+                                <div className="bg-slate-900/80 p-2.5 rounded border border-slate-800 text-[11px] text-gray-300">
+                                    <span className="text-amber-400 font-bold block mb-0.5">🎁 Бонус {data.level} уровня:</span>
+                                    {LEVEL_REWARDS[data.level] || "Максимальный статус и уважение!"}
+                                </div>
+                            </div>
+
+                            {/* Achievements Section */}
+                            <div className="bg-steam-card p-5 rounded-xl hud-border">
+                                <h3 className="text-sm font-bold text-white uppercase mb-3 flex items-center justify-between">
+                                    <span><i className="fa-solid fa-trophy text-amber-400 mr-2"></i>Достижения Steam</span>
+                                    <span className="text-xs text-gray-400">{(data.unlockedAchievements || []).length} / {ACHIEVEMENTS_LIST.length}</span>
+                                </h3>
+
+                                <div className="grid grid-cols-1 gap-2">
+                                    {ACHIEVEMENTS_LIST.map(ach => {
+                                        const isUnlocked = (data.unlockedAchievements || []).includes(ach.id);
+                                        return (
+                                            <div 
+                                                key={ach.id} 
+                                                className={`p-2.5 rounded-lg border flex items-center gap-3 transition ${
+                                                    isUnlocked ? 'bg-slate-900/90 border-amber-500/40' : 'bg-slate-950/40 border-slate-800/60 opacity-40'
+                                                }`}
+                                            >
+                                                <div className={`w-8 h-8 rounded bg-slate-800 border border-slate-700 flex items-center justify-center ${ach.color} text-sm`}>
+                                                    <i className={`fa-solid ${ach.icon}`}></i>
+                                                </div>
+                                                <div>
+                                                    <span className="text-xs font-bold text-white block">{ach.title}</span>
+                                                    <span className="text-[10px] text-gray-400">{ach.desc}</span>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
                             </div>
 
                             {/* Resource Gauges */}
                             <div className="bg-steam-card p-5 rounded-xl hud-border">
                                 <h3 className="text-sm font-bold text-white uppercase mb-4 flex items-center justify-between">
                                     <span><i className="fa-solid fa-clock text-steam-accent mr-2"></i>Баланс Времени</span>
-                                    <span className="text-xs text-gray-400 font-normal">Шаг: 1 час</span>
+                                    <span className="text-xs text-gray-400 font-normal">Автосброс: 00:00</span>
                                 </h3>
 
                                 <div className="grid grid-cols-2 gap-3 mb-4">
@@ -487,7 +687,7 @@
                                     <div className="bg-slate-900/80 p-3 rounded-lg border border-amber-500/30">
                                         <span className="text-xs text-amber-400 block mb-1">Банк Бонусов</span>
                                         <span className="text-2xl font-black text-amber-400">+{data.bonusBank} ч</span>
-                                        <span className="text-[10px] text-gray-500 block mt-1">Недельный капитал</span>
+                                        <span className="text-[10px] text-gray-500 block mt-1">Сгорает в ПН</span>
                                     </div>
                                 </div>
 
@@ -515,15 +715,6 @@
                                     </div>
                                 )}
                             </div>
-
-                            {/* Free Hosting Guide Toggle Button */}
-                            <button 
-                                onClick={() => setShowHostingGuide(true)}
-                                className="w-full bg-slate-900 hover:bg-slate-800 text-xs text-steam-accent p-3 rounded-xl border border-steam-accent/30 flex items-center justify-between transition"
-                            >
-                                <span className="flex items-center gap-2"><i className="fa-solid fa-cloud-arrow-up"></i> Синхронизация Firebase</span>
-                                <i className="fa-solid fa-chevron-right"></i>
-                            </button>
                         </div>
 
                         {/* CENTER COLUMN: Quests & Tasks */}
@@ -547,7 +738,7 @@
                                                 <div key={req.id} className="bg-slate-800 p-3 rounded-md flex items-center justify-between gap-3 border border-slate-700">
                                                     <div>
                                                         <span className="text-xs text-white font-bold block">{req.questTitle}</span>
-                                                        <span className="text-[10px] text-gray-400">Награда: +{req.bonus}ч в Банк • Время: {req.timestamp}</span>
+                                                        <span className="text-[10px] text-gray-400">Награда: +{req.bonus}ч (+{req.bonus * 50} XP) • Время: {req.timestamp}</span>
                                                     </div>
                                                     <div className="flex items-center gap-2">
                                                         <button 
@@ -581,16 +772,16 @@
                                             <i className="fa-solid fa-plus"></i> Создать Квест
                                         </button>
                                         <button 
+                                            onClick={() => openEditShopModal(null)}
+                                            className="bg-amber-600 hover:bg-amber-500 text-slate-950 text-xs px-3 py-2 rounded-lg font-bold transition flex items-center gap-2"
+                                        >
+                                            <i className="fa-solid fa-cart-plus"></i> Добавить в Магазин
+                                        </button>
+                                        <button 
                                             onClick={() => setShowPenalizeModal(true)}
                                             className="bg-red-950/60 hover:bg-red-900 text-xs text-red-300 px-3 py-2 rounded-lg font-bold border border-red-500/40 transition flex items-center gap-2"
                                         >
                                             <i className="fa-solid fa-triangle-exclamation"></i> Списание / Штраф
-                                        </button>
-                                        <button 
-                                            onClick={handleResetDay}
-                                            className="bg-slate-800 hover:bg-slate-700 text-xs text-gray-300 px-3 py-2 rounded-lg font-bold border border-slate-700 transition flex items-center gap-2 ml-auto"
-                                        >
-                                            <i className="fa-solid fa-rotate-right"></i> Сбросить день
                                         </button>
                                     </div>
                                 </div>
@@ -619,7 +810,7 @@
                                                     <div className="flex items-start justify-between mb-2">
                                                         <span className="text-xs font-bold uppercase text-white tracking-wide">{quest.title}</span>
                                                         <span className="bg-amber-500/20 text-amber-300 border border-amber-500/40 text-xs font-black px-2 py-0.5 rounded">
-                                                            +{quest.bonus} ЧАС
+                                                            +{quest.bonus} ЧАС (+{quest.bonus * 50} XP)
                                                         </span>
                                                     </div>
                                                     <p className="text-xs text-gray-400 mb-4">{quest.desc}</p>
@@ -653,21 +844,50 @@
 
                             {/* Rewards Shop Section */}
                             <div className="bg-steam-card p-5 rounded-xl hud-border">
-                                <h3 className="text-sm font-bold text-white uppercase tracking-wider mb-4 flex items-center gap-2">
-                                    <i className="fa-solid fa-store text-amber-400"></i> Магазин Бонусов & Привилегий
-                                </h3>
+                                <div className="flex items-center justify-between mb-4">
+                                    <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                                        <i className="fa-solid fa-store text-amber-400"></i> Магазин Бонусов & Привилегий
+                                    </h3>
+                                    {mode === "adult" && (
+                                        <button 
+                                            onClick={() => openEditShopModal(null)} 
+                                            className="text-xs bg-amber-500/20 text-amber-300 border border-amber-500/40 px-2 py-1 rounded hover:bg-amber-500 hover:text-slate-950 font-bold transition flex items-center gap-1"
+                                        >
+                                            <i className="fa-solid fa-plus"></i> Добавить товар
+                                        </button>
+                                    )}
+                                </div>
 
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                     {data.shopItems.map(item => (
                                         <div key={item.id} className="bg-slate-900/80 p-3 rounded-lg border border-slate-800 flex items-center justify-between">
                                             <div className="flex items-center gap-3">
                                                 <div className="w-9 h-9 rounded bg-slate-800 border border-slate-700 flex items-center justify-center text-amber-400 text-sm">
-                                                    <i className={`fa-solid ${item.icon}`}></i>
+                                                    <i className={`fa-solid ${item.icon || 'fa-gift'}`}></i>
                                                 </div>
                                                 <div>
                                                     <span className="text-xs font-bold text-white block">{item.title}</span>
                                                     <span className="text-[10px] text-gray-400">Стоимость: {item.cost} бонус-часа</span>
                                                 </div>
+                                            </div>
+
+                                            <div className="flex items-center gap-2">
+                                                {mode === "adult" ? (
+                                                    <button 
+                                                        onClick={() => openEditShopModal(item)}
+                                                        className="text-xs text-gray-400 hover:text-amber-400 p-1.5 transition"
+                                                        title="Редактировать товар"
+                                                    >
+                                                        <i className="fa-solid fa-pen"></i>
+                                                    </button>
+                                                ) : (
+                                                    <button 
+                                                        onClick={() => handleBuyShopItem(item)}
+                                                        className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs px-2.5 py-1 rounded transition"
+                                                    >
+                                                        Купить
+                                                    </button>
+                                                )}
                                             </div>
                                         </div>
                                     ))}
@@ -722,6 +942,65 @@
                         </div>
                     )}
 
+                    {showShopModal && (
+                        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+                            <div className="bg-steam-card p-6 rounded-xl hud-border max-w-md w-full space-y-4 border border-amber-500/40">
+                                <div className="flex items-center justify-between">
+                                    <h3 className="text-sm font-bold text-amber-400 uppercase flex items-center gap-2">
+                                        <i className="fa-solid fa-store"></i> {editingShopItem ? "Редактировать привилегию" : "Добавить товар в Магазин"}
+                                    </h3>
+                                    <button onClick={() => setShowShopModal(false)} className="text-gray-400 hover:text-white">
+                                        <i className="fa-solid fa-xmark"></i>
+                                    </button>
+                                </div>
+                                <form onSubmit={handleSaveShopItem} className="space-y-3">
+                                    <div>
+                                        <label className="text-xs text-gray-400 block mb-1">Название товара / привилегии</label>
+                                        <input 
+                                            type="text" 
+                                            required
+                                            placeholder="Например: Поездка на картинг или Новые наушники" 
+                                            value={shopTitle}
+                                            onChange={(e) => setShopTitle(e.target.value)}
+                                            className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs text-white focus:outline-none focus:border-amber-500"
+                                        />
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <label className="text-xs text-gray-400 block mb-1">Стоимость (Бонус-часов)</label>
+                                            <input 
+                                                type="number" 
+                                                min="1" 
+                                                max="10"
+                                                value={shopCost}
+                                                onChange={(e) => setShopCost(e.target.value)}
+                                                className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs text-white focus:outline-none focus:border-amber-500"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="text-xs text-gray-400 block mb-1">Иконка</label>
+                                            <select 
+                                                value={shopIcon} 
+                                                onChange={(e) => setShopIcon(e.target.value)}
+                                                className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs text-white"
+                                            >
+                                                <option value="fa-gamepad">🎮 Игры / Время</option>
+                                                <option value="fa-motorcycle">🛵 Скутер / Экип</option>
+                                                <option value="fa-gas-pump">⛽ Бензин / Расходники</option>
+                                                <option value="fa-shield-halved">🛡️ Защитный Щит</option>
+                                                <option value="fa-headset">🎧 Девайсы</option>
+                                                <option value="fa-gift">🎁 Подарок / Вкусняшка</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <button type="submit" className="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold py-2.5 rounded text-xs uppercase tracking-wider transition mt-2">
+                                        Сохранить в Магазине
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+                    )}
+
                     {showNewQuestModal && (
                         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
                             <div className="bg-steam-card p-6 rounded-xl hud-border max-w-md w-full space-y-4">
@@ -753,9 +1032,9 @@
                                                 onChange={(e) => setNewQuestBonus(e.target.value)}
                                                 className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs text-white"
                                             >
-                                                <option value="1">+1 час</option>
-                                                <option value="2">+2 часа</option>
-                                                <option value="3">+3 часа</option>
+                                                <option value="1">+1 час (+50 XP)</option>
+                                                <option value="2">+2 часа (+100 XP)</option>
+                                                <option value="3">+3 часа (+150 XP)</option>
                                             </select>
                                         </div>
                                         <div>
@@ -820,34 +1099,8 @@
                         </div>
                     )}
 
-                    {showHostingGuide && (
-                        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-                            <div className="bg-steam-card p-6 rounded-xl hud-border max-w-2xl w-full space-y-4 max-h-[85vh] overflow-y-auto">
-                                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-                                    <h3 className="text-sm font-bold text-steam-accent uppercase flex items-center gap-2">
-                                        <i className="fa-solid fa-server"></i> Инструкция по синхронизации Firebase
-                                    </h3>
-                                    <button onClick={() => setShowHostingGuide(false)} className="text-gray-400 hover:text-white">
-                                        <i className="fa-solid fa-xmark"></i>
-                                    </button>
-                                </div>
-                                
-                                <div className="space-y-4 text-xs text-gray-300 leading-relaxed">
-                                    <div className="bg-slate-900 p-3 rounded border border-slate-800 space-y-1">
-                                        <h4 className="font-bold text-white text-xs">🔥 Статус подключения</h4>
-                                        <p>Приложение автоматически подключается к проекту <code className="text-steam-accent">steam-quest-hub</code> в Firebase Cloud Firestore. Данные синхронизируются в реальном времени между всеми смартфонами и ПК.</p>
-                                    </div>
-                                </div>
-
-                                <button onClick={() => setShowHostingGuide(false)} className="w-full bg-slate-800 hover:bg-slate-700 text-white font-bold py-2 rounded text-xs transition">
-                                    Закрыть
-                                </button>
-                            </div>
-                        </div>
-                    )}
-
                     <footer className="mt-8 text-center text-xs text-gray-600 border-t border-slate-900 pt-4">
-                        Steam Quest HUB • Система баланса времени, учебы и скутера • Разработано для брата
+                        Steam Quest HUB v2.0 • Система баланса времени, учебы и скутера • Разработано для брата
                     </footer>
 
                 </div>
