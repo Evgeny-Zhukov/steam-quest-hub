@@ -1,0 +1,836 @@
+<!DOCTYPE html>
+<html lang="ru" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Steam Quest HUB | Игровой баланс и Своевременные Квесты</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        steam: {
+                            dark: '#1b2838',
+                            card: '#171a21',
+                            accent: '#66c0f4',
+                            btn: '#2a475e',
+                            green: '#5c7e10',
+                            brightGreen: '#a4d007',
+                            rust: '#cd412b',
+                            gold: '#f39c12'
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- React & Babel CDNs -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Canvas Confetti -->
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <style>
+        body {
+            background-color: #0d121a;
+            color: #c6d4df;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-image: radial-gradient(circle at 50% 0%, #1b2838 0%, #0d121a 75%);
+            min-height: 100vh;
+        }
+        .hud-border {
+            border: 1px solid rgba(102, 192, 244, 0.2);
+            box-shadow: 0 0 15px rgba(0, 0, 0, 0.5), inset 0 0 15px rgba(102, 192, 244, 0.05);
+        }
+        .rust-card {
+            border-left: 4px solid #cd412b;
+        }
+        .cs2-card {
+            border-left: 4px solid #66c0f4;
+        }
+        .glow-accent {
+            box-shadow: 0 0 12px rgba(102, 192, 244, 0.4);
+        }
+        .glow-gold {
+            box-shadow: 0 0 12px rgba(243, 156, 18, 0.4);
+        }
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #171a21;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #2a475e;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #66c0f4;
+        }
+    </style>
+</head>
+<body class="selection:bg-steam-accent selection:text-black antialiased">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        // Initial default state
+        const DEFAULT_DATA = {
+            baseHours: 2,
+            bonusBank: 1,
+            usedToday: 0,
+            xp: 350,
+            level: 3,
+            pin: "1234",
+            quests: [
+                { id: 1, title: "Уроки сданы до 18:00", bonus: 1, type: "daily", category: "school", desc: "Все сделано, портфель собран", status: "available" },
+                { id: 2, title: "Исправить тройку/двойку", bonus: 1, type: "quest", category: "school", desc: "Получить 4 или 5 по предмету, где завал", status: "available" },
+                { id: 3, title: "Идеальная неделя", bonus: 2, type: "weekly", category: "discipline", desc: "Неделя без двоек и заметок", status: "available" },
+                { id: 4, title: "Технический осмотр скутера", bonus: 1, type: "quest", category: "scooter", desc: "Помощь по дому / гаражу или чистка экипа", status: "available" }
+            ],
+            requests: [],
+            shopItems: [
+                { id: 101, title: "+1 час в Steam", cost: 1, icon: "fa-gamepad", type: "time" },
+                { id: 102, title: "Сдвиг комендантского часа на 1ч", cost: 2, icon: "fa-motorcycle", type: "scooter" },
+                { id: 103, title: "Бюджет на бензин/расходник", cost: 3, icon: "fa-gas-pump", type: "real" },
+                { id: 104, title: "Защитный 'Щит' (списать 1 плохую оценку)", cost: 4, icon: "fa-shield-halved", type: "perk" }
+            ],
+            history: [
+                { id: 1001, text: "Система активирована. Старт сезона!", date: new Date().toLocaleDateString('ru-RU') }
+            ],
+            firebaseConfig: {
+                apiKey: "",
+                authDomain: "",
+                databaseURL: "",
+                projectId: "",
+                storageBucket: "",
+                messagingSenderId: "",
+                appId: ""
+            }
+        };
+
+        function App() {
+            const [mode, setMode] = useState("child"); // "child" | "adult"
+            const [data, setData] = useState(() => {
+                const saved = localStorage.getItem("steam_quest_hub_data");
+                return saved ? JSON.parse(saved) : DEFAULT_DATA;
+            });
+
+            const [pinInput, setPinInput] = useState("");
+            const [showPinModal, setShowPinModal] = useState(false);
+            const [showHostingGuide, setShowHostingGuide] = useState(false);
+            const [showNewQuestModal, setShowNewQuestModal] = useState(false);
+            const [showPenalizeModal, setShowPenalizeModal] = useState(false);
+            const [notification, setNotification] = useState(null);
+
+            // Form states
+            const [newQuestTitle, setNewQuestTitle] = useState("");
+            const [newQuestBonus, setNewQuestBonus] = useState(1);
+            const [newQuestCategory, setNewQuestCategory] = useState("school");
+            const [penalizeReason, setPenalizeReason] = useState("");
+            const [penalizeHours, setPenalizeHours] = useState(1);
+
+            // Save locally on change
+            useEffect(() => {
+                localStorage.setItem("steam_quest_hub_data", JSON.stringify(data));
+            }, [data]);
+
+            const triggerConfetti = () => {
+                try {
+                    confetti({ particleCount: 70, spread: 60, origin: { y: 0.7 } });
+                } catch (e) {
+                    // fallback
+                }
+            };
+
+            const showToast = (msg, type = "info") => {
+                setNotification({ msg, type });
+                setTimeout(() => setNotification(null), 3500);
+            };
+
+            // Switch Mode handler
+            const handleSwitchMode = (targetMode) => {
+                if (targetMode === "adult" && mode !== "adult") {
+                    setShowPinModal(true);
+                } else {
+                    setMode("child");
+                    showToast("Переключено в Детский режим");
+                }
+            };
+
+            const verifyPin = (e) => {
+                e.preventDefault();
+                if (pinInput === data.pin) {
+                    setMode("adult");
+                    setShowPinModal(false);
+                    setPinInput("");
+                    showToast("Доступ разрешен. Взрослый режим активирован", "success");
+                } else {
+                    showToast("Неверный PIN-код!", "error");
+                    setPinInput("");
+                }
+            };
+
+            const requestQuestCompletion = (quest) => {
+                // Check if already requested
+                if (data.requests.some(r => r.questId === quest.id && r.status === "pending")) {
+                    showToast("Запрос по этому квесту уже отправлен и ждет подтверждения!", "warning");
+                    return;
+                }
+
+                const newRequest = {
+                    id: Date.now(),
+                    questId: quest.id,
+                    questTitle: quest.title,
+                    bonus: quest.bonus,
+                    timestamp: new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
+                    status: "pending"
+                };
+
+                setData(prev => ({
+                    ...prev,
+                    requests: [newRequest, ...prev.requests]
+                }));
+
+                showToast(`Запрос на "${quest.title}" (+${quest.bonus}ч) отправлен старшему!`, "success");
+            };
+
+            const logUsedTime = (hours) => {
+                const totalAvail = data.baseHours + data.bonusBank;
+                if (data.usedToday + hours > totalAvail) {
+                    showToast("Недостаточно доступных часов! Выполняй квесты.", "error");
+                    return;
+                }
+
+                // Deduct from bonus bank first if base hours exceeded
+                let newBonusBank = data.bonusBank;
+                const remainingBase = Math.max(0, data.baseHours - data.usedToday);
+                if (hours > remainingBase) {
+                    const extra = hours - remainingBase;
+                    newBonusBank = Math.max(0, newBonusBank - extra);
+                }
+
+                const newUsed = data.usedToday + hours;
+                const newHistory = [{
+                    id: Date.now(),
+                    text: `Списано ${hours}ч. Сыграно/потрачено сегодня: ${newUsed}ч`,
+                    date: new Date().toLocaleDateString('ru-RU')
+                }, ...data.history];
+
+                setData(prev => ({
+                    ...prev,
+                    usedToday: newUsed,
+                    bonusBank: newBonusBank,
+                    history: newHistory
+                }));
+
+                showToast(`Зафиксировано ${hours}ч. Приятного отдыха!`, "info");
+            };
+
+            const handleApproveRequest = (req) => {
+                // Add bonus to bank & gain XP
+                const newBank = data.bonusBank + req.bonus;
+                const addedXp = req.bonus * 100;
+                let newXp = data.xp + addedXp;
+                let newLevel = data.level;
+                if (newXp >= newLevel * 300) {
+                    newLevel += 1;
+                }
+
+                const updatedRequests = data.requests.map(r => r.id === req.id ? { ...r, status: "approved" } : r);
+                const newHistory = [{
+                    id: Date.now(),
+                    text: `Подтвержден квест "${req.questTitle}". Начислено +${req.bonus}ч в Банк!`,
+                    date: new Date().toLocaleDateString('ru-RU')
+                }, ...data.history];
+
+                setData(prev => ({
+                    ...prev,
+                    bonusBank: newBank,
+                    xp: newXp,
+                    level: newLevel,
+                    requests: updatedRequests,
+                    history: newHistory
+                }));
+
+                triggerConfetti();
+                showToast(`Запрос подтвержден! +${req.bonus}ч отправлено в банк.`, "success");
+            };
+
+            const handleRejectRequest = (req) => {
+                const updatedRequests = data.requests.map(r => r.id === req.id ? { ...r, status: "rejected" } : r);
+                const newHistory = [{
+                    id: Date.now(),
+                    text: `Отклонен запрос на квест "${req.questTitle}".`,
+                    date: new Date().toLocaleDateString('ru-RU')
+                }, ...data.history];
+
+                setData(prev => ({
+                    ...prev,
+                    requests: updatedRequests,
+                    history: newHistory
+                }));
+
+                showToast(`Запрос отклонен`, "info");
+            };
+
+            const handleAddQuest = (e) => {
+                e.preventDefault();
+                if (!newQuestTitle) return;
+
+                const newQuest = {
+                    id: Date.now(),
+                    title: newQuestTitle,
+                    bonus: parseInt(newQuestBonus),
+                    type: "quest",
+                    category: newQuestCategory,
+                    desc: "Пользовательский квест от старшего",
+                    status: "available"
+                };
+
+                setData(prev => ({
+                    ...prev,
+                    quests: [newQuest, ...prev.quests]
+                }));
+
+                setNewQuestTitle("");
+                setShowNewQuestModal(false);
+                showToast("Новый квест успешно добавлен!", "success");
+            };
+
+            const handlePenalize = (e) => {
+                e.preventDefault();
+                const penalty = parseInt(penalizeHours);
+                const newBank = Math.max(0, data.bonusBank - penalty);
+
+                const newHistory = [{
+                    id: Date.now(),
+                    text: `Штраф/Списание: -${penalty}ч. Причина: ${penalizeReason || "Нарушение дисциплины"}`,
+                    date: new Date().toLocaleDateString('ru-RU')
+                }, ...data.history];
+
+                setData(prev => ({
+                    ...prev,
+                    bonusBank: newBank,
+                    history: newHistory
+                }));
+
+                setPenalizeReason("");
+                setShowPenalizeModal(false);
+                showToast(`Применен дебафф -${penalty}ч`, "warning");
+            };
+
+            const handleResetDay = () => {
+                setData(prev => ({
+                    ...prev,
+                    usedToday: 0,
+                    history: [{ id: Date.now(), text: "Сброшен таймер дня (новый день)", date: new Date().toLocaleDateString('ru-RU') }, ...prev.history]
+                }));
+                showToast("Дневной таймер сброшен!", "info");
+            };
+
+            const totalAvailableToday = Math.max(0, (data.baseHours + data.bonusBank) - data.usedToday);
+
+            return (
+                <div className="max-w-6xl mx-auto p-3 sm:p-6 min-h-screen flex flex-col justify-between">
+                    
+                    {/* Header HUD Navigation */}
+                    <header className="bg-steam-card p-4 rounded-xl hud-border mb-6 flex flex-col md:flex-row justify-between items-center gap-4">
+                        <div className="flex items-center gap-3">
+                            <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-steam-accent to-blue-700 flex items-center justify-center text-white text-2xl font-bold glow-accent">
+                                <i className="fa-brands fa-steam"></i>
+                            </div>
+                            <div>
+                                <h1 className="text-xl font-black text-white tracking-wider uppercase flex items-center gap-2">
+                                    HUB БРАТА <span className="text-xs px-2 py-0.5 rounded bg-steam-btn text-steam-accent border border-steam-accent/30">v2.5</span>
+                                </h1>
+                                <p className="text-xs text-gray-400">Система контроля времени & Квесты будущего</p>
+                            </div>
+                        </div>
+
+                        {/* Mode Indicator & Switcher */}
+                        <div className="flex items-center gap-3 bg-slate-900/80 p-1.5 rounded-lg border border-slate-700">
+                            <button 
+                                onClick={() => handleSwitchMode("child")}
+                                className={`px-4 py-2 rounded-md font-semibold text-xs transition-all duration-200 flex items-center gap-2 ${mode === 'child' ? 'bg-steam-accent text-slate-950 font-bold glow-accent' : 'text-gray-400 hover:text-white'}`}
+                            >
+                                <i className="fa-solid fa-child"></i> Детский Режим
+                            </button>
+                            <button 
+                                onClick={() => handleSwitchMode("adult")}
+                                className={`px-4 py-2 rounded-md font-semibold text-xs transition-all duration-200 flex items-center gap-2 ${mode === 'adult' ? 'bg-amber-500 text-slate-950 font-bold glow-gold' : 'text-gray-400 hover:text-white'}`}
+                            >
+                                <i className="fa-solid fa-user-shield"></i> Взрослый Режим
+                            </button>
+                        </div>
+                    </header>
+
+                    {/* Toast Notification */}
+                    {notification && (
+                        <div className={`fixed top-4 right-4 z-50 px-4 py-3 rounded-lg shadow-xl text-sm font-semibold flex items-center gap-3 border ${
+                            notification.type === 'success' ? 'bg-emerald-900/90 border-emerald-500 text-emerald-200' :
+                            notification.type === 'error' ? 'bg-red-900/90 border-red-500 text-red-200' :
+                            notification.type === 'warning' ? 'bg-amber-900/90 border-amber-500 text-amber-200' :
+                            'bg-steam-btn border-steam-accent text-steam-accent'
+                        }`}>
+                            <i className="fa-solid fa-circle-info"></i>
+                            {notification.msg}
+                        </div>
+                    )}
+
+                    {/* MAIN HUD CONTENT */}
+                    <main className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-auto">
+                        
+                        {/* LEFT COLUMN: Status & Resource Dashboard */}
+                        <div className="space-y-6">
+                            
+                            {/* Profile & Level Card */}
+                            <div className="bg-steam-card p-5 rounded-xl hud-border relative overflow-hidden">
+                                <div className="absolute top-0 right-0 p-4 opacity-10 text-8xl text-steam-accent">
+                                    <i className="fa-solid fa-gamepad"></i>
+                                </div>
+                                <div className="flex items-center justify-between mb-3">
+                                    <span className="text-xs uppercase font-bold tracking-widest text-steam-accent">Статус Игрока</span>
+                                    <span className="text-xs bg-steam-btn px-2 py-1 rounded text-white font-mono">Уровень {data.level}</span>
+                                </div>
+                                <h2 className="text-2xl font-black text-white mb-1">Младший Брат</h2>
+                                <p className="text-xs text-gray-400 mb-4">CS2 & Rust Строитель / Скутерист</p>
+                                
+                                {/* XP Bar */}
+                                <div className="space-y-1">
+                                    <div className="flex justify-between text-xs text-gray-400">
+                                        <span>Опыт (XP)</span>
+                                        <span>{data.xp} / {data.level * 300} XP</span>
+                                    </div>
+                                    <div className="w-full bg-slate-800 h-2.5 rounded-full overflow-hidden border border-slate-700">
+                                        <div 
+                                            className="bg-gradient-to-r from-blue-500 to-steam-accent h-full transition-all duration-500"
+                                            style={{ width: `${Math.min(100, (data.xp / (data.level * 300)) * 100)}%` }}
+                                        ></div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Resource Gauges (Base vs Bonus vs Available) */}
+                            <div className="bg-steam-card p-5 rounded-xl hud-border">
+                                <h3 className="text-sm font-bold text-white uppercase mb-4 flex items-center justify-between">
+                                    <span><i className="fa-solid fa-clock text-steam-accent mr-2"></i>Баланс Времени</span>
+                                    <span className="text-xs text-gray-400 font-normal">Шаг: 1 час</span>
+                                </h3>
+
+                                <div className="grid grid-cols-2 gap-3 mb-4">
+                                    <div className="bg-slate-900/80 p-3 rounded-lg border border-slate-800">
+                                        <span className="text-xs text-gray-400 block mb-1">База на день</span>
+                                        <span className="text-2xl font-black text-white">{data.baseHours} ч</span>
+                                        <span className="text-[10px] text-gray-500 block mt-1">Доступ с 18:00</span>
+                                    </div>
+                                    <div className="bg-slate-900/80 p-3 rounded-lg border border-amber-500/30">
+                                        <span className="text-xs text-amber-400 block mb-1">Банк Бонусов</span>
+                                        <span className="text-2xl font-black text-amber-400">+{data.bonusBank} ч</span>
+                                        <span className="text-[10px] text-gray-500 block mt-1">Недельный капитал</span>
+                                    </div>
+                                </div>
+
+                                {/* Total Available Box */}
+                                <div className="bg-gradient-to-r from-slate-900 to-steam-btn p-4 rounded-xl border border-steam-accent/40 mb-4 flex items-center justify-between">
+                                    <div>
+                                        <span className="text-xs text-steam-accent font-semibold block">ДОСТУПНО СЕГОДНЯ</span>
+                                        <span className="text-3xl font-black text-white">{totalAvailableToday} ч</span>
+                                        <span className="text-[11px] text-gray-400 block">Потрачено: {data.usedToday}ч</span>
+                                    </div>
+                                    <div className="text-right">
+                                        <i className="fa-solid fa-bolt text-3xl text-steam-brightGreen glow-accent p-2 rounded-full bg-slate-900"></i>
+                                    </div>
+                                </div>
+
+                                {/* Quick Log Time (Child Quick Action) */}
+                                {mode === "child" && (
+                                    <div className="space-y-2">
+                                        <span className="text-xs text-gray-400 block">Зафиксировать сыгранное время:</span>
+                                        <div className="grid grid-cols-3 gap-2">
+                                            <button onClick={() => logUsedTime(1)} className="bg-slate-800 hover:bg-steam-btn text-xs text-white py-2 rounded font-bold border border-slate-700 transition">+1 час</button>
+                                            <button onClick={() => logUsedTime(2)} className="bg-slate-800 hover:bg-steam-btn text-xs text-white py-2 rounded font-bold border border-slate-700 transition">+2 часа</button>
+                                            <button onClick={() => logUsedTime(3)} className="bg-slate-800 hover:bg-steam-btn text-xs text-white py-2 rounded font-bold border border-slate-700 transition">+3 часа</button>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Free Hosting Guide Toggle Button */}
+                            <button 
+                                onClick={() => setShowHostingGuide(true)}
+                                className="w-full bg-slate-900 hover:bg-slate-800 text-xs text-steam-accent p-3 rounded-xl border border-steam-accent/30 flex items-center justify-between transition"
+                            >
+                                <span className="flex items-center gap-2"><i className="fa-solid fa-cloud-arrow-up"></i> Как синхронизировать на 2 телефона?</span>
+                                <i className="fa-solid fa-chevron-right"></i>
+                            </button>
+                        </div>
+
+                        {/* CENTER COLUMN: Quests & Tasks */}
+                        <div className="lg:col-span-2 space-y-6">
+                            
+                            {/* Adult Controls Section (Visible only in Adult Mode) */}
+                            {mode === "adult" && (
+                                <div className="bg-amber-950/30 p-5 rounded-xl border border-amber-500/40 space-y-4">
+                                    <div className="flex items-center justify-between">
+                                        <h3 className="text-sm font-bold text-amber-400 uppercase tracking-wider flex items-center gap-2">
+                                            <i className="fa-solid fa-sliders"></i> Панель Управления Старшего
+                                        </h3>
+                                        <span className="text-xs bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded border border-amber-500/30">Активен режим родителя</span>
+                                    </div>
+
+                                    {/* Pending Requests Review Section */}
+                                    {data.requests.filter(r => r.status === 'pending').length > 0 ? (
+                                        <div className="space-y-3 bg-slate-900/90 p-4 rounded-lg border border-amber-500/50">
+                                            <span className="text-xs font-bold text-amber-300 block mb-2">⚡ Запросы на подтверждение от младшего:</span>
+                                            {data.requests.filter(r => r.status === 'pending').map(req => (
+                                                <div key={req.id} className="bg-slate-800 p-3 rounded-md flex items-center justify-between gap-3 border border-slate-700">
+                                                    <div>
+                                                        <span className="text-xs text-white font-bold block">{req.questTitle}</span>
+                                                        <span className="text-[10px] text-gray-400">Награда: +{req.bonus}ч в Банк • Время: {req.timestamp}</span>
+                                                    </div>
+                                                    <div className="flex items-center gap-2">
+                                                        <button 
+                                                            onClick={() => handleApproveRequest(req)} 
+                                                            className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs px-3 py-1.5 rounded font-bold transition flex items-center gap-1"
+                                                        >
+                                                            <i className="fa-solid fa-check"></i> Одобрить
+                                                        </button>
+                                                        <button 
+                                                            onClick={() => handleRejectRequest(req)} 
+                                                            className="bg-red-600 hover:bg-red-500 text-white text-xs px-2 py-1.5 rounded transition"
+                                                        >
+                                                            <i className="fa-solid fa-xmark"></i>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <div className="text-xs text-gray-400 bg-slate-900/50 p-3 rounded border border-slate-800">
+                                            Нет ожидающих подтверждения запросов.
+                                        </div>
+                                    )}
+
+                                    {/* Action Buttons for Adult */}
+                                    <div className="flex flex-wrap gap-3 pt-2">
+                                        <button 
+                                            onClick={() => setShowNewQuestModal(true)}
+                                            className="bg-steam-btn hover:bg-steam-accent hover:text-slate-950 text-xs text-white px-3 py-2 rounded-lg font-bold border border-steam-accent/40 transition flex items-center gap-2"
+                                        >
+                                            <i className="fa-solid fa-plus"></i> Создать Квест
+                                        </button>
+                                        <button 
+                                            onClick={() => setShowPenalizeModal(true)}
+                                            className="bg-red-950/60 hover:bg-red-900 text-xs text-red-300 px-3 py-2 rounded-lg font-bold border border-red-500/40 transition flex items-center gap-2"
+                                        >
+                                            <i className="fa-solid fa-triangle-exclamation"></i> Списание / Штраф
+                                        </button>
+                                        <button 
+                                            onClick={handleResetDay}
+                                            className="bg-slate-800 hover:bg-slate-700 text-xs text-gray-300 px-3 py-2 rounded-lg font-bold border border-slate-700 transition flex items-center gap-2 ml-auto"
+                                        >
+                                            <i className="fa-solid fa-rotate-right"></i> Сбросить день
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Active Quests List */}
+                            <div className="bg-steam-card p-5 rounded-xl hud-border">
+                                <div className="flex items-center justify-between mb-4">
+                                    <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                                        <i className="fa-solid fa-crosshairs text-steam-accent"></i> Доступные Квесты (Способы получить +ч)
+                                    </h3>
+                                    <span className="text-xs text-gray-400">{data.quests.length} активных</span>
+                                </div>
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    {data.quests.map(quest => {
+                                        const pendingReq = data.requests.find(r => r.questId === quest.id && r.status === 'pending');
+                                        return (
+                                            <div 
+                                                key={quest.id} 
+                                                className={`p-4 rounded-xl bg-slate-900/90 border transition-all duration-200 flex flex-col justify-between ${
+                                                    quest.category === 'scooter' ? 'rust-card border-slate-800' : 'cs2-card border-slate-800'
+                                                }`}
+                                            >
+                                                <div>
+                                                    <div className="flex items-start justify-between mb-2">
+                                                        <span className="text-xs font-bold uppercase text-white tracking-wide">{quest.title}</span>
+                                                        <span className="bg-amber-500/20 text-amber-300 border border-amber-500/40 text-xs font-black px-2 py-0.5 rounded">
+                                                            +{quest.bonus} ЧАС
+                                                        </span>
+                                                    </div>
+                                                    <p className="text-xs text-gray-400 mb-4">{quest.desc}</p>
+                                                </div>
+
+                                                <div className="pt-2 border-t border-slate-800 flex items-center justify-between">
+                                                    <span className="text-[10px] text-gray-500 uppercase font-mono">
+                                                        {quest.category === 'school' ? '🏫 Школа' : quest.category === 'scooter' ? '🛵 Скутер' : '⭐ Дисциплина'}
+                                                    </span>
+
+                                                    {mode === "child" && (
+                                                        pendingReq ? (
+                                                            <span className="text-[11px] text-amber-400 font-bold bg-amber-950/40 px-2 py-1 rounded border border-amber-500/30 flex items-center gap-1">
+                                                                <i className="fa-solid fa-hourglass-half animate-pulse"></i> На проверке
+                                                            </span>
+                                                        ) : (
+                                                            <button 
+                                                                onClick={() => requestQuestCompletion(quest)}
+                                                                className="bg-steam-btn hover:bg-steam-accent hover:text-slate-950 text-white text-xs px-3 py-1.5 rounded-lg font-bold border border-steam-accent/30 transition flex items-center gap-1"
+                                                            >
+                                                                Выполнил! <i className="fa-solid fa-paper-plane"></i>
+                                                            </button>
+                                                        )
+                                                    )}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+
+                            {/* Rewards Shop Section */}
+                            <div className="bg-steam-card p-5 rounded-xl hud-border">
+                                <h3 className="text-sm font-bold text-white uppercase tracking-wider mb-4 flex items-center gap-2">
+                                    <i className="fa-solid fa-store text-amber-400"></i> Магазин Бонусов & Привилегий
+                                </h3>
+
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    {data.shopItems.map(item => (
+                                        <div key={item.id} className="bg-slate-900/80 p-3 rounded-lg border border-slate-800 flex items-center justify-between">
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-9 h-9 rounded bg-slate-800 border border-slate-700 flex items-center justify-center text-amber-400 text-sm">
+                                                    <i className={`fa-solid ${item.icon}`}></i>
+                                                </div>
+                                                <div>
+                                                    <span className="text-xs font-bold text-white block">{item.title}</span>
+                                                    <span className="text-[10px] text-gray-400">Стоимость: {item.cost} бонус-часа</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Activity & Audit Log */}
+                            <div className="bg-steam-card p-5 rounded-xl hud-border">
+                                <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+                                    <i className="fa-solid fa-list-check"></i> История событий и активности
+                                </h3>
+                                <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
+                                    {data.history.map(item => (
+                                        <div key={item.id} className="text-xs p-2 rounded bg-slate-900/60 border border-slate-800/80 flex justify-between text-gray-300">
+                                            <span>{item.text}</span>
+                                            <span className="text-[10px] text-gray-500 font-mono">{item.date}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+
+                        </div>
+                    </main>
+
+                    {/* MODAL: Adult PIN Verification */}
+                    {showPinModal && (
+                        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+                            <div className="bg-steam-card p-6 rounded-xl hud-border max-w-sm w-full space-y-4 border border-amber-500/40">
+                                <div className="flex items-center justify-between">
+                                    <h3 className="text-sm font-bold text-amber-400 uppercase flex items-center gap-2">
+                                        <i className="fa-solid fa-lock"></i> Доступ Взрослого
+                                    </h3>
+                                    <button onClick={() => setShowPinModal(false)} className="text-gray-400 hover:text-white">
+                                        <i className="fa-solid fa-xmark"></i>
+                                    </button>
+                                </div>
+                                <p className="text-xs text-gray-300">Введи PIN-код родителя для управления и одобрения квестов (По умолчанию: <code className="text-amber-400">1234</code>)</p>
+                                <form onSubmit={verifyPin} className="space-y-3">
+                                    <input 
+                                        type="password" 
+                                        maxLength="6"
+                                        placeholder="PIN-код" 
+                                        value={pinInput}
+                                        onChange={(e) => setPinInput(e.target.value)}
+                                        className="w-full bg-slate-900 border border-slate-700 rounded p-2.5 text-center text-lg font-mono tracking-widest text-white focus:outline-none focus:border-amber-500"
+                                    />
+                                    <button type="submit" className="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold py-2 rounded text-xs uppercase tracking-wider transition">
+                                        Войти в режим Взрослого
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* MODAL: Create New Quest */}
+                    {showNewQuestModal && (
+                        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+                            <div className="bg-steam-card p-6 rounded-xl hud-border max-w-md w-full space-y-4">
+                                <div className="flex items-center justify-between">
+                                    <h3 className="text-sm font-bold text-white uppercase flex items-center gap-2">
+                                        <i className="fa-solid fa-plus text-steam-accent"></i> Добавить новый квест
+                                    </h3>
+                                    <button onClick={() => setShowNewQuestModal(false)} className="text-gray-400 hover:text-white">
+                                        <i className="fa-solid fa-xmark"></i>
+                                    </button>
+                                </div>
+                                <form onSubmit={handleAddQuest} className="space-y-3">
+                                    <div>
+                                        <label className="text-xs text-gray-400 block mb-1">Название квеста</label>
+                                        <input 
+                                            type="text" 
+                                            required
+                                            placeholder="Например: Разобрать гараж или написать ВПР" 
+                                            value={newQuestTitle}
+                                            onChange={(e) => setNewQuestTitle(e.target.value)}
+                                            className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs text-white focus:outline-none focus:border-steam-accent"
+                                        />
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <label className="text-xs text-gray-400 block mb-1">Награда (Часы)</label>
+                                            <select 
+                                                value={newQuestBonus} 
+                                                onChange={(e) => setNewQuestBonus(e.target.value)}
+                                                className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs text-white"
+                                            >
+                                                <option value="1">+1 час</option>
+                                                <option value="2">+2 часа</option>
+                                                <option value="3">+3 часа</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="text-xs text-gray-400 block mb-1">Категория</label>
+                                            <select 
+                                                value={newQuestCategory} 
+                                                onChange={(e) => setNewQuestCategory(e.target.value)}
+                                                className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs text-white"
+                                            >
+                                                <option value="school">Учеба</option>
+                                                <option value="scooter">Скутер / Техника</option>
+                                                <option value="discipline">Дисциплина</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <button type="submit" className="w-full bg-steam-btn hover:bg-steam-accent hover:text-slate-950 text-white font-bold py-2.5 rounded text-xs uppercase tracking-wider transition mt-2">
+                                        Создать квест
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* MODAL: Penalize */}
+                    {showPenalizeModal && (
+                        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+                            <div className="bg-steam-card p-6 rounded-xl hud-border max-w-md w-full space-y-4 border border-red-500/40">
+                                <div className="flex items-center justify-between">
+                                    <h3 className="text-sm font-bold text-red-400 uppercase flex items-center gap-2">
+                                        <i className="fa-solid fa-triangle-exclamation"></i> Применить Дебафф / Штраф
+                                    </h3>
+                                    <button onClick={() => setShowPenalizeModal(false)} className="text-gray-400 hover:text-white">
+                                        <i className="fa-solid fa-xmark"></i>
+                                    </button>
+                                </div>
+                                <form onSubmit={handlePenalize} className="space-y-3">
+                                    <div>
+                                        <label className="text-xs text-gray-400 block mb-1">Причина штрафа</label>
+                                        <input 
+                                            type="text" 
+                                            placeholder="Скрытие оценки / обман / нарушение безопасности" 
+                                            value={penalizeReason}
+                                            onChange={(e) => setPenalizeReason(e.target.value)}
+                                            className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs text-white focus:outline-none focus:border-red-500"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-xs text-gray-400 block mb-1">Количество списываемых часов</label>
+                                        <select 
+                                            value={penalizeHours} 
+                                            onChange={(e) => setPenalizeHours(e.target.value)}
+                                            className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs text-white"
+                                        >
+                                            <option value="1">-1 час</option>
+                                            <option value="2">-2 часа</option>
+                                        </select>
+                                    </div>
+                                    <button type="submit" className="w-full bg-red-600 hover:bg-red-500 text-white font-bold py-2.5 rounded text-xs uppercase tracking-wider transition mt-2">
+                                        Подтвердить списание
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* MODAL: Free Hosting & Sync Instructions */}
+                    {showHostingGuide && (
+                        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+                            <div className="bg-steam-card p-6 rounded-xl hud-border max-w-2xl w-full space-y-4 max-h-[85vh] overflow-y-auto">
+                                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                                    <h3 className="text-sm font-bold text-steam-accent uppercase flex items-center gap-2">
+                                        <i className="fa-solid fa-server"></i> Инструкция: Бесплатный деплой и Синхронизация на 2 устройства
+                                    </h3>
+                                    <button onClick={() => setShowHostingGuide(false)} className="text-gray-400 hover:text-white">
+                                        <i className="fa-solid fa-xmark"></i>
+                                    </button>
+                                </div>
+                                
+                                <div className="space-y-4 text-xs text-gray-300 leading-relaxed">
+                                    <div className="bg-slate-900 p-3 rounded border border-slate-800 space-y-1">
+                                        <h4 className="font-bold text-white text-xs">🚀 Вариант 1: Запуск прямо сейчас (Без серверов)</h4>
+                                        <p>Приложение сохраняет все данные в <code className="text-steam-accent">LocalStorage</code> браузера. Вы можете просто скопировать этот один HTML-файл и открыть его на телефоне или ПК через обычный браузер.</p>
+                                    </div>
+
+                                    <div className="bg-slate-900 p-3 rounded border border-slate-800 space-y-2">
+                                        <h4 className="font-bold text-white text-xs">🌐 Вариант 2: Загрузка на бесплатный хостинг (GitHub Pages / Vercel / Netlify)</h4>
+                                        <ol className="list-decimal list-inside space-y-1 text-gray-400">
+                                            <li>Сохраните код в файл <code className="text-white">index.html</code>.</li>
+                                            <li>Зарегистрируйтесь на <strong className="text-white">GitHub.com</strong> и создайте репозиторий <code className="text-white">steam-quest-hub</code>.</li>
+                                            <li>Загрузите туда файл <code className="text-white">index.html</code>.</li>
+                                            <li>В настройках репозитория (Settings → Pages) включите <strong className="text-white">GitHub Pages</strong>.</li>
+                                            <li>Получите бесплатную ссылку (например, <code className="text-steam-accent">https://username.github.io/steam-quest-hub</code>) и отправьте ее брату!</li>
+                                        </ol>
+                                    </div>
+
+                                    <div className="bg-slate-900 p-3 rounded border border-slate-800 space-y-2">
+                                        <h4 className="font-bold text-amber-400 text-xs">🔥 Вариант 3: Синхронизация через Firebase Realtime Database</h4>
+                                        <p>Чтобы изменения мгновенно отображались на телефоне брата и у вас в реальном времени:</p>
+                                        <ol className="list-decimal list-inside space-y-1 text-gray-400">
+                                            <li>Перейдите на <strong className="text-white">console.firebase.google.com</strong> (бесплатный тариф Spark).</li>
+                                            <li>Создайте проект и включите <strong className="text-white">Realtime Database</strong>.</li>
+                                            <li>Скопируйте конфиг и подставьте в настройки данного приложения.</li>
+                                        </ol>
+                                    </div>
+                                </div>
+
+                                <button onClick={() => setShowHostingGuide(false)} className="w-full bg-slate-800 hover:bg-slate-700 text-white font-bold py-2 rounded text-xs transition">
+                                    Понятно, закрыть
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Footer */}
+                    <footer className="mt-8 text-center text-xs text-gray-600 border-t border-slate-900 pt-4">
+                        Steam Quest HUB • Система баланса времени, учебы и скутера • Разработано для брата
+                    </footer>
+
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
